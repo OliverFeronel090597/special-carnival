@@ -226,7 +226,7 @@ Description: Report violations and maintain respectful environment.
 
 Process:
 
-Report via: conduct@qtforge.example.com
+Report via: just_report.com 😅
 
 Include:
 
@@ -239,8 +239,6 @@ Description of behavior
 Supporting evidence
 
 Contact information
-
-Enforcement: Maintainers will review and respond within 48 hours.
 
 Main Contributors
 Oliver Feronel: Initial codebase, function structure development, and UI design

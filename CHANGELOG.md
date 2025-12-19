@@ -27,5 +27,5 @@ All notable changes to Dynamic Source Loader will be documented in this file.
 - Settings persistence
 
 ### 12-19-25
-- Added DB (SQLITE3) to save recent paths and other data for the future to (./db) and will be move on your own path if you compile its take note manually edit it
+- Added DB (SQLITE3) to save recent paths and other data for the future to **(./db)** and will be move on your own path if you compile its take note manually edit it
 - Add Recent File in menu -> Open Recent -> Menu list of folders open

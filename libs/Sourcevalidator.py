@@ -10,7 +10,6 @@ import io
 from pyflakes.api import check
 from pyflakes.reporter import Reporter
 
-
 class SourceValidator(QThread):
     """Background thread for source validation and safe module loading."""
 
@@ -42,24 +41,29 @@ class SourceValidator(QThread):
     def is_builtin_module(self, module_name: str) -> bool:
         return module_name in sys.builtin_module_names
 
-    # ----------------- Static Analysis (pyflakes) -----------------
+    # ----------------- Static Analysis -----------------
     def run_pyflakes_check(self, module_path: Path) -> tuple[bool, str]:
+        """Run pyflakes and ignore unused import warnings."""
         try:
             stdout = io.StringIO()
             stderr = io.StringIO()
             reporter = Reporter(stdout, stderr)
 
             source = module_path.read_text(encoding="utf-8")
-            count = check(source, str(module_path), reporter)
+            check(source, str(module_path), reporter)
 
             output = stdout.getvalue().strip()
-            if count > 0 and output:
+            if output:
                 formatted = []
                 for line in output.splitlines():
-                    # pyflakes already outputs: file:line: message
-                    formatted.append(f"[STATIC] {Path(module_path).name}:{line.split(':',1)[1]}")
-                return False, "\n".join(formatted)
-
+                    # Ignore "imported but unused"
+                    if "imported but unused" in line:
+                        continue
+                    # Keep real errors
+                    parts = line.split(":", 1)
+                    formatted.append(f"[STATIC] {Path(module_path).name}:{parts[1] if len(parts) > 1 else line}")
+                if formatted:
+                    return False, "\n".join(formatted)
             return True, "Static analysis OK"
 
         except Exception as e:
@@ -113,7 +117,7 @@ class SourceValidator(QThread):
                 self.validation_complete.emit(False, msg, None)
                 return
 
-            # --- Static Analysis (THIS FIXES YOUR CRASH) ---
+            # --- Static Analysis ---
             self.progress_update.emit(45, "Running static analysis...")
             ok, msg = self.run_pyflakes_check(module_path)
             if not ok:
@@ -130,14 +134,23 @@ class SourceValidator(QThread):
 
             # --- Import ---
             self.progress_update.emit(70, "Importing module...")
+            module = None
             try:
                 spec = importlib.util.spec_from_file_location(module_name, module_path)
                 module = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = module
-                spec.loader.exec_module(module)
+                try:
+                    spec.loader.exec_module(module)
+                except ModuleNotFoundError as mnfe:
+                    print(f"[Validator] Optional module not found: {mnfe.name}, ignoring.")
+                except Exception as e:
+                    print(f"[Validator] Runtime error in module '{module_name}':\n", traceback.format_exc())
+                    self.preflight_check.emit(False, f"Module runtime error: {e}")
+                    self.validation_complete.emit(False, "Module import failed", None)
+                    return
             except Exception as e:
-                print("[Validator] Import error:\n", traceback.format_exc())
-                self.preflight_check.emit(False, f"Import failed: {e}")
+                print("[Validator] Import spec error:\n", traceback.format_exc())
+                self.preflight_check.emit(False, f"Import spec failed: {e}")
                 self.validation_complete.emit(False, "Module import failed", None)
                 return
 
@@ -158,26 +171,17 @@ class SourceValidator(QThread):
             self.preflight_check.emit(False, f"Unexpected error: {e}")
             self.validation_complete.emit(False, "Validation crashed", None)
 
+    # ----------------- Exception Formatting -----------------
     def format_exception(self, e: Exception, path: Path | None = None) -> str:
         if isinstance(e, SyntaxError):
             file = Path(e.filename).name if e.filename else (path.name if path else "<?>")
             line = e.lineno or "?"
             col = e.offset or "?"
             text = (e.text or "").rstrip()
-
-            return (
-                f"[SYNTAX ERROR] {file}:{line}:{col}\n"
-                f"→ {e.msg}\n"
-                f"→ {text}"
-            )
+            return f"[SYNTAX ERROR] {file}:{line}:{col}\n→ {e.msg}\n→ {text}"
 
         tb = traceback.extract_tb(e.__traceback__)
         last = tb[-1] if tb else None
-
         if last:
-            return (
-                f"[{type(e).__name__}] {Path(last.filename).name}:{last.lineno}\n"
-                f"→ {e}"
-            )
-
+            return f"[{type(e).__name__}] {Path(last.filename).name}:{last.lineno}\n→ {e}"
         return f"[{type(e).__name__}] {e}"

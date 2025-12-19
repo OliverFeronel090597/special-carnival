@@ -170,7 +170,7 @@ class MainWindow(QMainWindow):
 
     # ----------------- Handlers -----------------
     def on_recent_file_selected(self):
-        action :QAction = self.sender()
+        action :QAction= self.sender()
         path_str = action.data()  # we stored the path in action.setData()
         folder_path = Path(path_str)  # <-- convert to Path
         self.load_source(folder_path)
@@ -467,12 +467,14 @@ class MainWindow(QMainWindow):
 
     def perform_auto_reload(self):
         try:
+            self.renderer.begin_update()
             self.renderer.clear()
             if self.current_source:
                 mod_name = self.current_source.stem
                 if mod_name in sys.modules:
                     del sys.modules[mod_name]
             self.start_validation(self.current_source)
+            self.renderer.end_update()
         finally:
             self.is_reloading = False
 

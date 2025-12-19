@@ -87,6 +87,9 @@ class DatabaseConnector:
     # ##############################################################################
 
     def insert_path(self, path: str | Path, last_opened: str):
+        """
+        Save all valid and working paths
+        """
         query = """
         INSERT OR REPLACE INTO RECENT (PATH, LAST_OPENED)
         VALUES (?, ?)

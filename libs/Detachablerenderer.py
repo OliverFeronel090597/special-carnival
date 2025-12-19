@@ -1,6 +1,6 @@
 
 from PyQt6.QtCore import (
-    Qt
+    Qt, QSignalBlocker
     )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
@@ -183,3 +183,15 @@ class DetachableRenderer(QDockWidget):
         self.title_label.setText("Renderer")
         if self.isFloating():
             self.setWindowTitle("Renderer - Detached")
+
+    def begin_update(self):
+        """Disable user interaction during update."""
+        self.setEnabled(False)
+        self._signal_blocker = QSignalBlocker(self)
+        self.title_label.setText("Renderer (updating...)")
+
+    def end_update(self):
+        """Re-enable interaction after update."""
+        self._signal_blocker = None
+        self.setEnabled(True)
+        self.title_label.setText("Renderer")
