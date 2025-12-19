@@ -1,152 +1,183 @@
-
 import sys
 import ast
 import importlib.util
 import configparser
 from pathlib import Path
+from PyQt6.QtCore import pyqtSignal, QThread
+import traceback
+import io
 
-from PyQt6.QtCore import (
-    pyqtSignal, QThread
-)
+from pyflakes.api import check
+from pyflakes.reporter import Reporter
+
 
 class SourceValidator(QThread):
-    """Background thread for source validation and loading."""
-    
+    """Background thread for source validation and safe module loading."""
+
     validation_complete = pyqtSignal(bool, str, object)  # success, message, module
-    preflight_check = pyqtSignal(bool, str)  # success, message
-    progress_update = pyqtSignal(int, str)  # progress, message
-    
+    preflight_check = pyqtSignal(bool, str)              # success, message
+    progress_update = pyqtSignal(int, str)               # progress, message
+
     def __init__(self, source_path: Path):
         super().__init__()
         self.source_path = source_path
         self.config_path = source_path.parent / f"{source_path.stem}.ini"
-        
+
+    # ----------------- Dependency / Syntax -----------------
     def find_dependencies(self, module_path: Path):
-        """Find all Python dependencies of a module."""
         dependencies = set()
-        
         try:
-            with open(module_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                
-            # Parse AST to find imports
+            content = module_path.read_text(encoding="utf-8")
             tree = ast.parse(content)
-            
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     for alias in node.names:
-                        # Get base module name
-                        base_module = alias.name.split('.')[0]
-                        # Only track local modules (not built-in)
-                        if not self.is_builtin_module(base_module):
-                            dependencies.add(base_module)
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module:
-                        base_module = node.module.split('.')[0]
-                        if not self.is_builtin_module(base_module):
-                            dependencies.add(base_module)
-                            
+                        dependencies.add(alias.name.split('.')[0])
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    dependencies.add(node.module.split('.')[0])
         except Exception as e:
-            print(f"Error parsing dependencies: {e}")
-            
+            print(f"[Validator] Dependency parse error: {e}")
         return dependencies
-        
+
     def is_builtin_module(self, module_name: str) -> bool:
-        """Check if a module is built-in."""
-        builtin_modules = {
-            'sys', 'os', 'math', 'datetime', 'time', 'json', 're',
-            'collections', 'itertools', 'functools', 'typing',
-            'pathlib', 'configparser', 'traceback', 'ast', 'importlib'
-        }
-        return module_name in builtin_modules
-        
+        return module_name in sys.builtin_module_names
+
+    # ----------------- Static Analysis (pyflakes) -----------------
+    def run_pyflakes_check(self, module_path: Path) -> tuple[bool, str]:
+        try:
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            reporter = Reporter(stdout, stderr)
+
+            source = module_path.read_text(encoding="utf-8")
+            count = check(source, str(module_path), reporter)
+
+            output = stdout.getvalue().strip()
+            if count > 0 and output:
+                formatted = []
+                for line in output.splitlines():
+                    # pyflakes already outputs: file:line: message
+                    formatted.append(f"[STATIC] {Path(module_path).name}:{line.split(':',1)[1]}")
+                return False, "\n".join(formatted)
+
+            return True, "Static analysis OK"
+
+        except Exception as e:
+            return False, self.format_exception(e, module_path)
+
+    # ----------------- Validation -----------------
     def run(self):
-        """Perform validation and loading in background thread."""
         try:
             self.progress_update.emit(10, "Starting validation...")
-            
-            # Step 1: Parse configuration
+
+            # --- Config ---
             if not self.config_path.exists():
-                self.preflight_check.emit(False, f"Config file not found: {self.config_path}")
+                self.preflight_check.emit(False, f"Missing config: {self.config_path.name}")
                 self.validation_complete.emit(False, "Config file missing", None)
                 return
-                
-            self.progress_update.emit(20, "Reading config file...")
+
+            self.progress_update.emit(20, "Reading config...")
             config = configparser.ConfigParser()
             config.read(self.config_path)
-            
-            if 'source' not in config:
-                self.preflight_check.emit(False, "Missing [source] section in config")
-                self.validation_complete.emit(False, "Invalid config format", None)
+
+            if "source" not in config:
+                self.preflight_check.emit(False, "Missing [source] section")
+                self.validation_complete.emit(False, "Invalid config", None)
                 return
-                
-            # Step 2: Perform preflight checks
-            module_name = config.get('source', 'module', fallback=None)
-            entry_point = config.get('source', 'entry_point', fallback='main_widget')
-            
+
+            module_name = config.get("source", "module", fallback=None)
+            entry_point = config.get("source", "entry_point", fallback="main_widget")
+
             if not module_name:
-                self.preflight_check.emit(False, "No module specified in config")
+                self.preflight_check.emit(False, "Module not specified")
                 self.validation_complete.emit(False, "Missing module name", None)
                 return
-                
+
+            # --- Module file ---
             self.progress_update.emit(30, "Checking module file...")
-            # Check module exists
             module_path = self.source_path.parent / f"{module_name}.py"
+
             if not module_path.exists():
-                self.preflight_check.emit(False, f"Module file not found: {module_path}")
+                self.preflight_check.emit(False, f"Missing module file: {module_path.name}")
                 self.validation_complete.emit(False, "Module file missing", None)
                 return
-                
-            # Check Python syntax
+
+            # --- Syntax ---
             self.progress_update.emit(40, "Checking syntax...")
             try:
-                with open(module_path, 'r', encoding='utf-8') as f:
-                    compile(f.read(), module_path, 'exec')
-                self.preflight_check.emit(True, "Syntax check passed")
+                compile(module_path.read_text(encoding="utf-8"), str(module_path), "exec")
+                self.preflight_check.emit(True, "Syntax OK")
             except SyntaxError as e:
-                self.preflight_check.emit(False, f"Syntax error: {e}")
-                self.validation_complete.emit(False, f"Syntax error in module", None)
+                msg = self.format_exception(e, module_path)
+                self.preflight_check.emit(False, msg)
+                self.validation_complete.emit(False, msg, None)
                 return
-                
-            # Find dependencies
-            self.progress_update.emit(50, "Analyzing dependencies...")
-            dependencies = self.find_dependencies(module_path)
-            
-            # Check dependency files exist
-            for dep in dependencies:
-                dep_path = self.source_path.parent / f"{dep}.py"
-                if dep_path.exists():
-                    self.progress_update.emit(55, f"Found dependency: {dep}")
-                else:
-                    # It might be a package or external module
-                    pass
-                
-            # Step 3: Import module
-            self.progress_update.emit(60, "Importing module...")
+
+            # --- Static Analysis (THIS FIXES YOUR CRASH) ---
+            self.progress_update.emit(45, "Running static analysis...")
+            ok, msg = self.run_pyflakes_check(module_path)
+            if not ok:
+                self.preflight_check.emit(False, msg)
+                self.validation_complete.emit(False, f"Static analysis failed:\n{msg}", None)
+                return
+
+            # --- Dependencies ---
+            self.progress_update.emit(55, "Analyzing dependencies...")
+            for dep in self.find_dependencies(module_path):
+                dep_file = self.source_path.parent / f"{dep}.py"
+                if dep_file.exists():
+                    self.progress_update.emit(60, f"Found dependency: {dep}")
+
+            # --- Import ---
+            self.progress_update.emit(70, "Importing module...")
             try:
                 spec = importlib.util.spec_from_file_location(module_name, module_path)
                 module = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = module
                 spec.loader.exec_module(module)
-                
-                # Step 4: Check entry point
-                self.progress_update.emit(80, "Checking entry point...")
-                if not hasattr(module, entry_point):
-                    self.preflight_check.emit(False, f"Entry point '{entry_point}' not found")
-                    self.validation_complete.emit(False, "Missing entry point", None)
-                    return
-                    
-                self.progress_update.emit(100, "Validation complete")
-                self.preflight_check.emit(True, "All checks passed")
-                self.validation_complete.emit(True, "Source loaded successfully", module)
-                
-            except ImportError as e:
-                self.preflight_check.emit(False, f"Import error: {e}")
-                self.validation_complete.emit(False, f"Import failed: {e}", None)
             except Exception as e:
-                self.preflight_check.emit(False, f"Unexpected error: {e}")
-                self.validation_complete.emit(False, f"Load failed: {e}", None)
-                
+                print("[Validator] Import error:\n", traceback.format_exc())
+                self.preflight_check.emit(False, f"Import failed: {e}")
+                self.validation_complete.emit(False, "Module import failed", None)
+                return
+
+            # --- Entry point ---
+            self.progress_update.emit(85, "Checking entry point...")
+            if not hasattr(module, entry_point):
+                self.preflight_check.emit(False, f"Entry point '{entry_point}' not found")
+                self.validation_complete.emit(False, "Entry point missing", None)
+                return
+
+            # --- SUCCESS ---
+            self.progress_update.emit(100, "Validation complete")
+            self.preflight_check.emit(True, "All checks passed")
+            self.validation_complete.emit(True, "Source loaded successfully", module)
+
         except Exception as e:
-            self.preflight_check.emit(False, f"Validation error: {e}")
-            self.validation_complete.emit(False, f"Validation failed: {e}", None)
+            print("[Validator] Fatal error:\n", traceback.format_exc())
+            self.preflight_check.emit(False, f"Unexpected error: {e}")
+            self.validation_complete.emit(False, "Validation crashed", None)
+
+    def format_exception(self, e: Exception, path: Path | None = None) -> str:
+        if isinstance(e, SyntaxError):
+            file = Path(e.filename).name if e.filename else (path.name if path else "<?>")
+            line = e.lineno or "?"
+            col = e.offset or "?"
+            text = (e.text or "").rstrip()
+
+            return (
+                f"[SYNTAX ERROR] {file}:{line}:{col}\n"
+                f"→ {e.msg}\n"
+                f"→ {text}"
+            )
+
+        tb = traceback.extract_tb(e.__traceback__)
+        last = tb[-1] if tb else None
+
+        if last:
+            return (
+                f"[{type(e).__name__}] {Path(last.filename).name}:{last.lineno}\n"
+                f"→ {e}"
+            )
+
+        return f"[{type(e).__name__}] {e}"

@@ -1,9 +1,13 @@
 # QtForge Studio
 
+<img src="img/QtForge%20Studio.png" alt="QtForge Studio" width="200" height="200">
+
+
+
+
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Python](https://img.shields.io/badge/python-3.14%2B-blue)
 ![Qt](https://img.shields.io/badge/Qt-PyQt6%20%7C%20PySide6-brightgreen)
-
 **QtForge Studio** is an open-source developer tool for **hosting, testing, and hot-reloading Qt widgets** in a controlled runtime environment.
 
 It allows developers to load renderers dynamically, run them inside either `QMainWindow` or `QWidget`, and validate UI behavior **without restarting the application**.

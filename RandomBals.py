@@ -54,7 +54,7 @@ class DynamicPaintWidget(QWidget):
         self.update()
 
     def paintEvent(self, event):
-        painter = QPainer(self)
+        painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         # Background gradient (water-like)

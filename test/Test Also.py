@@ -58,14 +58,29 @@ class RendererWidget(QWidget):
 
         self.x = 0
 
-    def update_renderer(self):
-        """Simulate renderer update"""
-        self.x += 1
-        y = random.randint(0, 100)
-        self.series.append(self.x, y)
-        self.status_label.setText(
-            f"Updated | x={self.x}, y={y}, {self.combo_mode.currentText()}"
-        )
+    # Assuming you have a renderer widget
+    def update_renderer(self, module):
+        """
+        Update renderer widget only if module loaded correctly
+        and has the required class (Painter).
+        """
+        if not module:
+            print("Module load failed. Skipping renderer update.")
+            return
+
+        try:
+            # Ensure Painter exists
+            if hasattr(module, "Painter"):
+                # Remove old widget(s)
+                for child in self.renderer.findChildren(QWidget):
+                    child.deleteLater()
+                
+                painter_widget = module.Painter(self.renderer)
+                self.renderer.layout().addWidget(painter_widget)
+            else:
+                print("Module loaded but Painter class not found. Skipping update.")
+        except Exception as e:
+            print(f"Error updating renderer: {e}")
 
 
 # =======================
