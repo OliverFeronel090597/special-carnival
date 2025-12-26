@@ -19,3 +19,6 @@ class StylesheetModifier:
                 print(f"[StylesheetModifier] Stylesheet applied: {self.qss_path.name}")
         except Exception as e:
             print(f"[StylesheetModifier] Failed to apply stylesheet: {e}")
+
+    def toggle_theme(self):
+        pass

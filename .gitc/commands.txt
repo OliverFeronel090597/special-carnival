@@ -41,3 +41,5 @@ Senior dev tip
 Lock this in early:
 
 git config --global init.defaultBranch main
+
+git --no-pager log --oneline --decorate --graph --parents # check records

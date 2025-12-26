@@ -4,25 +4,28 @@ A professional Qt application for embedding external Python-Qt modules at runtim
 Complete with auto-reload functionality and detachable renderer.
 """
 
-import sys
-import os
+import                                  sys
+import                                  os
+import                                  psutil
+import                                  configparser
 from pathlib                    import Path
 from typing                     import Optional, Any
-
 from PyQt6.QtCore               import (Qt, QTimer, QSettings, 
                                         QFileSystemWatcher, QDateTime, pyqtSlot)
 from PyQt6.QtWidgets            import (
-                                QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                                QPushButton, QLabel, QFrame, QFileDialog, QMenu,
-                                QCheckBox, QGroupBox, QProgressBar)
+                                        QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                                        QPushButton, QLabel, QFrame, QFileDialog, QMenu,
+                                        QCheckBox, QGroupBox, QProgressBar)
 from PyQt6.QtGui                import (QFont, QIcon, QAction)
 
+# custom classes
 from libs.Detachablerenderer    import DetachableRenderer
 from libs.Sourcevalidator       import SourceValidator
 from libs.Safewidgetwrapper     import SafeWidgetWrapper
 from libs.stylesheetModefier    import StylesheetModifier
 from libs.Errorlogview          import ErrorLogView
 from libs.Databasconnector      import DatabaseConnector
+from libs.Globalenentfilter     import GlobalEventFilter
 
 # ----------------- Main Application -----------------
 class MainWindow(QMainWindow):
@@ -58,9 +61,9 @@ class MainWindow(QMainWindow):
     # ----------------- Window / UI -----------------
     def setup_window(self):
         self.setWindowIcon(QIcon("img/QtForge Studio.png"))
-        self.setWindowTitle("Dynamic Source Loader Host")
+        self.setWindowTitle("QtForge Studio")
         self.setGeometry(100, 100, 1400, 900)
-        self.settings = QSettings("DynamicLoader", "HostApp")
+        self.settings = QSettings("QtForge_Studio", "HostApp")
         if self.settings.contains("window/geometry"):
             self.restoreGeometry(self.settings.value("window/geometry"))
         if self.settings.contains("window/state"):
@@ -205,7 +208,6 @@ class MainWindow(QMainWindow):
 
     def update_memory_usage(self):
         try:
-            import psutil
             mem = psutil.Process().memory_info().rss / 1024 / 1024
             self.memory_label.setText(f"🧠 {mem:.1f} MB")
         except ImportError:
@@ -289,7 +291,6 @@ class MainWindow(QMainWindow):
         self.db.insert_path(folder_path, self.get_curr_date_time())
 
         config_file = ini_files[0]
-        import configparser
         config = configparser.ConfigParser()
         config.read(config_file)
         module_name = config.get('source', 'module', fallback=None)
@@ -513,6 +514,8 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    event_filter = GlobalEventFilter()
+    app.installEventFilter(event_filter)
     win = MainWindow()
     win.show()
     sys.exit(app.exec())
